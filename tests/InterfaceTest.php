@@ -1,68 +1,59 @@
 <?php
 
+require 'vendor/autoload.php';
+
 use Silex\WebTestCase;
 use Symfony\Component\Filesystem\Filesystem;
-use Gitter\Client;
+use GitList\Component\Git\Client;
+use GitList\Application;
 
 class InterfaceTest extends WebTestCase
 {
-    protected static $tmpdir;
+    const PATH = '/tmp/gitlist/';
 
     public static function setUpBeforeClass()
     {
-        if (getenv('TMP')) {
-            self::$tmpdir = getenv('TMP');
-        } elseif (getenv('TMPDIR')) {
-            self::$tmpdir = getenv('TMPDIR');
-        } else {
-           self::$tmpdir = '/tmp';
-        }
-
-        self::$tmpdir .= '/gitlist_' . md5(time() . mt_rand()) . '/';
-
         $fs = new Filesystem();
-        $fs->mkdir(self::$tmpdir);
+        $fs->mkdir(InterfaceTest::PATH);
 
-        if (!is_writable(self::$tmpdir)) {
+        if (!is_writable(InterfaceTest::PATH)) {
             $this->markTestSkipped('There are no write permissions in order to create test repositories.');
         }
 
         $options['path'] = getenv('GIT_CLIENT') ?: '/usr/bin/git';
-        $options['hidden'] = array(self::$tmpdir . '/hiddenrepo');
+        $options['hidden'] = array(InterfaceTest::PATH . '/hiddenrepo');
         $git = new Client($options);
 
         // GitTest repository fixture
-        $git->createRepository(self::$tmpdir . 'GitTest');
-        $repository = $git->getRepository(self::$tmpdir . 'GitTest');
-        file_put_contents(self::$tmpdir . 'GitTest/README.md', "## GitTest\nGitTest is a *test* repository!");
-        file_put_contents(self::$tmpdir . 'GitTest/test.php', "<?php\necho 'Hello World'; // This is a test");
-        $repository->setConfig('user.name', 'Luke Skywalker');
-        $repository->setConfig('user.email', 'luke@rebel.org');
+        $git->createRepository(InterfaceTest::PATH . 'GitTest');
+        $repository = $git->getRepository(InterfaceTest::PATH . 'GitTest');
+        file_put_contents(InterfaceTest::PATH . 'GitTest/README.md', "## GitTest\nGitTest is a *test* repository!");
+        file_put_contents(InterfaceTest::PATH . 'GitTest/test.php', "<?php\necho 'Hello World'; // This is a test");
         $repository->addAll();
         $repository->commit("Initial commit");
         $repository->createBranch('issue12');
         $repository->createBranch('issue42');
 
         // foobar repository fixture
-        $git->createRepository(self::$tmpdir . 'foobar');
-        $repository = $git->getRepository(self::$tmpdir . '/foobar');
-        file_put_contents(self::$tmpdir . 'foobar/bar.json', "{\n\"name\": \"foobar\"\n}");
-        file_put_contents(self::$tmpdir . 'foobar/.git/description', 'This is a test repo!');
-        $fs->mkdir(self::$tmpdir . 'foobar/myfolder');
-        $fs->mkdir(self::$tmpdir . 'foobar/testfolder');
-        file_put_contents(self::$tmpdir . 'foobar/myfolder/mytest.php', "<?php\necho 'Hello World'; // This is my test");
-        file_put_contents(self::$tmpdir . 'foobar/testfolder/test.php', "<?php\necho 'Hello World'; // This is a test");
-        $repository->setConfig('user.name', 'Luke Skywalker');
-        $repository->setConfig('user.email', 'luke@rebel.org');
+        $git->createRepository(InterfaceTest::PATH . 'foobar');
+        $repository = $git->getRepository(InterfaceTest::PATH . '/foobar');
+        file_put_contents(InterfaceTest::PATH . 'foobar/bar.json', "{\n\"name\": \"foobar\"\n}");
+        file_put_contents(InterfaceTest::PATH . 'foobar/.git/description', 'This is a test repo!');
+        $fs->mkdir(InterfaceTest::PATH . 'foobar/myfolder');
+        $fs->mkdir(InterfaceTest::PATH . 'foobar/testfolder');
+        file_put_contents(InterfaceTest::PATH . 'foobar/myfolder/mytest.php', "<?php\necho 'Hello World'; // This is my test");
+        file_put_contents(InterfaceTest::PATH . 'foobar/testfolder/test.php', "<?php\necho 'Hello World'; // This is a test");
         $repository->addAll();
         $repository->commit("First commit");
     }
 
     public function createApplication()
     {
-        $app = require 'boot.php';
+        $app = new Application(__DIR__ . '/../config/test.php');
+        require __DIR__.'/../src/controllers.php';
+
         $app['debug'] = true;
-        $app['git.repos'] = self::$tmpdir;
+        $app['git.repos'] = InterfaceTest::PATH;
         return $app;
     }
 
@@ -110,97 +101,9 @@ class InterfaceTest extends WebTestCase
         $this->assertEquals('master', $crawler->filter('.dropdown-menu li')->eq(1)->text());
     }
 
-    public function testBlobPage()
-    {
-        $client = $this->createClient();
-
-        $crawler = $client->request('GET', '/GitTest/blob/master/test.php');
-        $this->assertTrue($client->getResponse()->isOk());
-        $this->assertCount(1, $crawler->filter('.breadcrumb .active:contains("test.php")'));
-        $this->assertEquals('/GitTest/raw/master/test.php', $crawler->filter('.source-header .btn-group a')->eq(0)->attr('href'));
-        $this->assertEquals('/GitTest/blame/master/test.php', $crawler->filter('.source-header .btn-group a')->eq(1)->attr('href'));
-        $this->assertEquals('/GitTest/commits/master/test.php', $crawler->filter('.source-header .btn-group a')->eq(2)->attr('href'));
-    }
-
-    public function testRawPage()
-    {
-        $client = $this->createClient();
-
-        $crawler = $client->request('GET', '/GitTest/raw/master/test.php');
-        $this->assertTrue($client->getResponse()->isOk());
-        $this->assertEquals("<?php\necho 'Hello World'; // This is a test", $client->getResponse()->getContent());
-    }
-
-    public function testBlamePage()
-    {
-        $client = $this->createClient();
-
-        $crawler = $client->request('GET', '/GitTest/blame/master/test.php');
-        $this->assertTrue($client->getResponse()->isOk());
-        $this->assertCount(1, $crawler->filter('.source-header .meta:contains("test.php")'));
-        $this->assertRegexp('/\/GitTest\/commit\/[a-zA-Z0-9%]+\//', $crawler->filter('.blame-view .commit')->eq(0)->filter('a')->attr('href'));
-
-        $crawler = $client->request('GET', '/foobar/blame/master/bar.json');
-        $this->assertTrue($client->getResponse()->isOk());
-        $this->assertCount(1, $crawler->filter('.source-header .meta:contains("bar.json")'));
-        $this->assertRegexp('/\/foobar\/commit\/[a-zA-Z0-9%]+\//', $crawler->filter('.blame-view .commit')->eq(0)->filter('a')->attr('href'));
-    }
-
-    public function testHistoryPage()
-    {
-        $client = $this->createClient();
-
-        $crawler = $client->request('GET', '/GitTest/commits/master/test.php');
-        $this->assertTrue($client->getResponse()->isOk());
-        $this->assertEquals('Initial commit', $crawler->filter('.table tbody tr td h4')->eq(0)->text());
-
-        $crawler = $client->request('GET', '/GitTest/commits/master/README.md');
-        $this->assertTrue($client->getResponse()->isOk());
-        $this->assertEquals('Initial commit', $crawler->filter('.table tbody tr td h4')->eq(0)->text());
-
-        $crawler = $client->request('GET', '/foobar/commits/master/bar.json');
-        $this->assertTrue($client->getResponse()->isOk());
-        $this->assertEquals('First commit', $crawler->filter('.table tbody tr td h4')->eq(0)->text());
-    }
-
-    public function testCommitsPage()
-    {
-        $client = $this->createClient();
-
-        $crawler = $client->request('GET', '/GitTest/commits');
-        $this->assertTrue($client->getResponse()->isOk());
-        $this->assertEquals('Initial commit', $crawler->filter('.table tbody tr td h4')->eq(0)->text());
-
-        $crawler = $client->request('GET', '/foobar/commits');
-        $this->assertTrue($client->getResponse()->isOk());
-        $this->assertEquals('First commit', $crawler->filter('.table tbody tr td h4')->eq(0)->text());
-    }
-
-    public function testStatsPage()
-    {
-        $client = $this->createClient();
-
-        $crawler = $client->request('GET', '/GitTest/stats');
-        $this->assertTrue($client->getResponse()->isOk());
-        $this->assertRegexp('/.php: 1 files/', $crawler->filter('.table tbody')->eq(0)->text());
-        $this->assertRegexp('/.md: 1 files/', $crawler->filter('.table tbody')->eq(0)->text());
-        $this->assertRegexp('/Total files: 2/', $crawler->filter('.table tbody')->eq(0)->text());
-        $this->assertRegexp('/Luke Skywalker: 1 commits/', $crawler->filter('.table tbody')->eq(0)->text());
-    }
-
-    public function testRssPage()
-    {
-        $client = $this->createClient();
-
-        $crawler = $client->request('GET', '/GitTest/master/rss/');
-        $this->assertTrue($client->getResponse()->isOk());
-        $this->assertRegexp('/Latest commits in GitTest:master/', $client->getResponse()->getContent());
-        $this->assertRegexp('/Initial commit/', $client->getResponse()->getContent());
-    }
-
     public static function tearDownAfterClass()
     {
         $fs = new Filesystem();
-        $fs->remove(self::$tmpdir);
+        $fs->remove(InterfaceTest::PATH);
     }
 }
