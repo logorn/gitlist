@@ -53,8 +53,6 @@ class InterfaceTest extends WebTestCase
     public function createApplication()
     {
         $app = new GitList\Application(__DIR__.'/../config/test.php');
-        require __DIR__.'/../src/controllers.php';
-
         $app['git.repos'] = self::$tmpdir;
 
         return $app;

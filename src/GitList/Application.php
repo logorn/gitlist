@@ -29,12 +29,15 @@ class Application extends SilexApplication
         if (null == $root) {
             $root = __DIR__ . "/../..";
         }
+
         $root = realpath($root);
 
         if (!file_exists($configFile)) {
             throw new \RuntimeException(sprintf('Can not find config file: "%s"', $configFile));
         }
         require $configFile;
+
+        $app['git.repos'] = rtrim($app['git.repos'], '/').'/';
 
         $this['cache.archives'] = $root . DIRECTORY_SEPARATOR . 'cache' . DIRECTORY_SEPARATOR . 'archives';
 
@@ -54,6 +57,11 @@ class Application extends SilexApplication
 
             return $twig;
         }));
+
+        $this->mount('', new Controller\MainController());
+        $this->mount('', new Controller\BlobController());
+        $this->mount('', new Controller\CommitController());
+        $this->mount('', new Controller\TreeController());
 
         // Handle errors
         $this->error(function (\Exception $e, $code) use ($app) {
